@@ -4,13 +4,8 @@
 #include <linux/fs.h>
 #include <linux/debugfs.h>
 #include <linux/slab.h>
-#include <linux/version    while (budget) {
-        /* Sample counters and update state
-         * TODO: For starters using CHA0 for local and CHA1 for remote
-         */
-        sample_cha_ctr(0, 0); /* CHA0 occupancy */
-        sample_cha_ctr(0, 1); /* CHA0 inserts */include <linux/mm.h>
-/* #include <linux/memory-tiers.h> */
+#include <linux/version.h>
+#include <linux/mm.h>
 #include <linux/delay.h>
 
 /* #define SPINPOLL */ /* TODO: configure this */
@@ -175,10 +170,10 @@ void thread_fun_poll_cha(struct work_struct *work)
     u64 cha_0_lat, cha_1_lat;
 
     while (budget) {
-    // Sample counters and update state
-    // TODO: For starters using CHA0 for local and CHA1 for remote
-    sample_cha_ctr(0, 0); // CHA0 occupancy
-    sample_cha_ctr(0, 1); // CHA0 inserts
+        // Sample counters and update state
+        // TODO: For starters using CHA0 for local and CHA1 for remote
+        sample_cha_ctr(0, 0); // CHA0 occupancy
+        sample_cha_ctr(0, 1); // CHA0 inserts
         sample_cha_ctr(1, 0);
         sample_cha_ctr(1, 1);
         sample_cha_ctr(0, 2);
