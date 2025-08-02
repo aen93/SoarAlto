@@ -18,7 +18,10 @@ This microbenchmark can be used to run with one thread for pointer-chasing or on
   ```
 
 ### Multi-process modes
-* Shared buffers across processes (`-S`, `-t`: number of processes)
+* Shared virtual address range across processes (`-S`, `-t`: number of processes)
+  * Buffers are mapped before `fork()` with `MAP_PRIVATE`, so each process
+    receives the same virtual addresses while keeping its own private copy of
+    the data.
   * Pointer-chasing
     ```
     ./bench -S -t 36 -R 0.0 -i 9 -A 1024

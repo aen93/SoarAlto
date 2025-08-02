@@ -265,14 +265,14 @@ int run_processes(header_t *header)
         if (pc_count > 0) {
             shared_a = mmap(NULL, header->buf_size_a * num_proc,
                             PROT_READ | PROT_WRITE,
-                            MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
             if (shared_a == MAP_FAILED)
                 return -1;
         }
         if (num_proc - pc_count > 0) {
             shared_b = mmap(NULL, header->buf_size_b * num_proc,
                             PROT_READ | PROT_WRITE,
-                            MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
             if (shared_b == MAP_FAILED)
                 return -1;
         }
