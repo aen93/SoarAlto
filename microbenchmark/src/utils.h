@@ -43,6 +43,9 @@ typedef struct header_struct {
     float ratio;
 
     volatile int halt;
+
+    /* process execution mode: 0=threads(default), 1=shared mem procs, 2=private mem procs */
+    int proc_mode;
 } header_t;
 
 int parse_arg(int argc, char *argv[], header_t *header);

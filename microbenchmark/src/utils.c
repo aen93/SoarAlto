@@ -27,14 +27,21 @@ void set_default(header_t *header)
     assert(header->num_chase_block > 0);
     header->chase_interval = header->num_chase_block;
     header->ratio = 0.0;
+    header->proc_mode = 0;
 }
 
 int parse_arg(int argc, char *argv[], header_t *header)
 {
     int opt;
     set_default(header);
-    while ((opt = getopt(argc, argv, "t:i:r:I:R:A:B:")) != -1) {
+    while ((opt = getopt(argc, argv, "SPt:i:r:I:R:A:B:")) != -1) {
         switch (opt) {
+        case 'S':
+            header->proc_mode = 1;
+            break;
+        case 'P':
+            header->proc_mode = 2;
+            break;
         case 't':
             header->num_thread = atoi(optarg);
             assert(header->num_thread > 0);
@@ -96,7 +103,7 @@ int init_buf_reg_alloc(uint64_t size, char **alloc_ptr)
         fprintf(stderr,"ERROR: malloc\n");
         return -1;
     }
-    ptr = (void**)((uintptr_t) (mem + (ALIGN - 1) + sizeof(void*)) & ~(ALIGN - 1));
+    ptr = (char *)(((uintptr_t)(mem + (ALIGN - 1) + sizeof(void*)) & ~(ALIGN - 1)));
     ((void **) ptr)[-1] = mem;
     page_size = (unsigned long)getpagesize();
     page_cnt = (size / page_size);
