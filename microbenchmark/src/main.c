@@ -32,6 +32,7 @@
 #include <immintrin.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
+#include <sys/shm.h>
 
 pthread_barrier_t barrier;
 pthread_barrier_t alloc_barrier;
@@ -260,20 +261,28 @@ int run_processes(header_t *header)
 
     char *shared_a = NULL;
     char *shared_b = NULL;
+    int shmid_a = -1;
+    int shmid_b = -1;
 
     if (header->proc_mode == 1) {
         if (pc_count > 0) {
-            shared_a = mmap(NULL, header->buf_size_a * num_proc,
-                            PROT_READ | PROT_WRITE,
-                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-            if (shared_a == MAP_FAILED)
+            shmid_a = shmget(IPC_PRIVATE,
+                             header->buf_size_a * num_proc,
+                             IPC_CREAT | 0600);
+            if (shmid_a < 0)
+                return -1;
+            shared_a = shmat(shmid_a, NULL, 0);
+            if (shared_a == (char *)-1)
                 return -1;
         }
         if (num_proc - pc_count > 0) {
-            shared_b = mmap(NULL, header->buf_size_b * num_proc,
-                            PROT_READ | PROT_WRITE,
-                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-            if (shared_b == MAP_FAILED)
+            shmid_b = shmget(IPC_PRIVATE,
+                             header->buf_size_b * num_proc,
+                             IPC_CREAT | 0600);
+            if (shmid_b < 0)
+                return -1;
+            shared_b = shmat(shmid_b, NULL, 0);
+            if (shared_b == (char *)-1)
                 return -1;
         }
     }
@@ -322,10 +331,14 @@ int run_processes(header_t *header)
         wait(NULL);
 
     if (header->proc_mode == 1) {
-        if (shared_a)
-            munmap(shared_a, header->buf_size_a * num_proc);
-        if (shared_b)
-            munmap(shared_b, header->buf_size_b * num_proc);
+        if (shared_a) {
+            shmdt(shared_a);
+            shmctl(shmid_a, IPC_RMID, NULL);
+        }
+        if (shared_b) {
+            shmdt(shared_b);
+            shmctl(shmid_b, IPC_RMID, NULL);
+        }
     }
 
     return 0;

@@ -18,10 +18,10 @@ This microbenchmark can be used to run with one thread for pointer-chasing or on
   ```
 
 ### Multi-process modes
-* Shared virtual address range across processes (`-S`, `-t`: number of processes)
-  * Buffers are mapped before `fork()` with `MAP_PRIVATE`, so each process
-    receives the same virtual addresses while keeping its own private copy of
-    the data.
+* Shared resident memory across processes (`-S`, `-t`: number of processes)
+  * Buffers are allocated from a System V shared memory segment before
+    `fork()`, creating a single RSS region of size
+    `buffer_size * number_of_processes` that all processes operate on.
   * Pointer-chasing
     ```
     ./bench -S -t 36 -R 0.0 -i 9 -A 1024
@@ -35,6 +35,7 @@ This microbenchmark can be used to run with one thread for pointer-chasing or on
     ./bench -S -t 36 -R 0.5 -i 9 -A 1024 -B 1024
     ```
 * Private buffers per process (`-P`, `-t`: number of processes)
+  * Each process allocates its own buffer of the requested size.
   * Pointer-chasing
     ```
     ./bench -P -t 36 -R 0.0 -i 9 -A 1024
