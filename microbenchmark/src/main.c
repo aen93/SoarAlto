@@ -30,6 +30,8 @@
 
 #include <assert.h>
 #include <immintrin.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
 
 pthread_barrier_t barrier;
 pthread_barrier_t alloc_barrier;
@@ -146,14 +148,12 @@ static void ptr_chase(char *addr, uint64_t num_chase_block)
 
 void pointer_chasing(header_t *header)
 {
-    int *records_buf = (int *) header->records_buf;
-    uint64_t interval = header->chase_interval;
-
     if (header->start_addr_a == NULL) {
         printf("ERROR header->start_addr_a == NULL\n");
         return;
     }
-    pthread_barrier_wait(&barrier);
+    if (header->proc_mode == 0)
+        pthread_barrier_wait(&barrier);
     init_ptr_buf(header);
     for (int i = 0; i < header->op_iter; i += 1) {
         ptr_chase(header->start_addr_a, header->num_chase_block);
@@ -165,7 +165,8 @@ void bandwidth(header_t *header)
 {
     char *src = header->start_addr_b;
 
-    pthread_barrier_wait(&barrier);
+    if (header->proc_mode == 0)
+        pthread_barrier_wait(&barrier);
     memset(src, 0xFF, header->buf_size_b);
     *((uint64_t *) &src[header->buf_size_b]) = 0;
     read_loop(src, header->buf_size_b);
@@ -182,10 +183,13 @@ int stick_this_thread_to_core(int core_id)
     cpu_set_t cpuset;
     pthread_t current_thread = pthread_self();
 
-    if (core_id < 0 || core_id >= num_cores) {
-        fprintf(stderr, "ERROR core_id < 0 || core_id >= num_cores\n");
+    if (num_cores <= 0)
         return EINVAL;
-    }
+    if (core_id < 0)
+        core_id = 0;
+    else if (core_id >= num_cores)
+        core_id %= num_cores;
+
     CPU_ZERO(&cpuset);
     CPU_SET(core_id, &cpuset);
     return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
@@ -210,9 +214,11 @@ void *pc_thread(void *arg)
         return NULL;
     }
     header->start_addr_a = &(header->buf_a[0]);
-    pthread_barrier_wait(&alloc_barrier);
+    if (header->proc_mode == 0)
+        pthread_barrier_wait(&alloc_barrier);
     pointer_chasing(header);
     aligned_free(header->buf_a);
+    return NULL;
 }
 
 void *bw_thread(void *arg)
@@ -225,7 +231,8 @@ void *bw_thread(void *arg)
         printf("ERROR stick_this_thread_to_core\n");
         return NULL;
     }
-    pthread_barrier_wait(&alloc_barrier);
+    if (header->proc_mode == 0)
+        pthread_barrier_wait(&alloc_barrier);
     ret = init_buf_reg_alloc(header->buf_size_b, &(header->buf_b));
     /* fprintf(stderr, "init_buf_reg_alloc in bw_thread\n"); */
     if (ret < 0) {
@@ -236,6 +243,92 @@ void *bw_thread(void *arg)
     header->start_addr_b = &(header->buf_b[0]);
     bandwidth(header);
     aligned_free(header->buf_b);
+    return NULL;
+}
+
+int run_processes(header_t *header)
+{
+    int num_proc = header->num_thread;
+    int pc_count;
+
+    if (header->ratio <= 0.0)
+        pc_count = num_proc;
+    else if (header->ratio >= 1.0)
+        pc_count = 0;
+    else
+        pc_count = (int)(header->ratio * num_proc);
+
+    char *shared_a = NULL;
+    char *shared_b = NULL;
+
+    if (header->proc_mode == 1) {
+        if (pc_count > 0) {
+            shared_a = mmap(NULL, header->buf_size_a * num_proc,
+                            PROT_READ | PROT_WRITE,
+                            MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+            if (shared_a == MAP_FAILED)
+                return -1;
+        }
+        if (num_proc - pc_count > 0) {
+            shared_b = mmap(NULL, header->buf_size_b * num_proc,
+                            PROT_READ | PROT_WRITE,
+                            MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+            if (shared_b == MAP_FAILED)
+                return -1;
+        }
+    }
+
+    for (int i = 0; i < num_proc; i++) {
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("fork");
+            break;
+        } else if (pid == 0) {
+            header_t child = *header;
+            child.thread_idx = i;
+            if (stick_this_thread_to_core(child.thread_idx) != 0)
+                _exit(1);
+            if (i < pc_count) {
+                if (header->proc_mode == 1) {
+                    child.start_addr_a = shared_a +
+                        ((uint64_t)i * header->buf_size_a);
+                } else {
+                    if (init_buf_reg_alloc(child.buf_size_a, &child.buf_a) < 0)
+                        _exit(1);
+                    child.start_addr_a = &child.buf_a[0];
+                }
+                pointer_chasing(&child);
+                if (header->proc_mode != 1)
+                    aligned_free(child.buf_a);
+            } else {
+                int idx_bw = i - pc_count;
+                if (header->proc_mode == 1) {
+                    child.start_addr_b = shared_b +
+                        ((uint64_t)idx_bw * header->buf_size_b);
+                } else {
+                    if (init_buf_reg_alloc(child.buf_size_b, &child.buf_b) < 0)
+                        _exit(1);
+                    child.start_addr_b = &child.buf_b[0];
+                }
+                bandwidth(&child);
+                if (header->proc_mode != 1)
+                    aligned_free(child.buf_b);
+            }
+            _exit(0);
+        }
+    }
+
+    for (int i = 0; i < num_proc; i++)
+        wait(NULL);
+
+    if (header->proc_mode == 1) {
+        if (shared_a)
+            munmap(shared_a, header->buf_size_a * num_proc);
+        if (shared_b)
+            munmap(shared_b, header->buf_size_b * num_proc);
+    }
+
+    return 0;
 }
 
 int run_split(header_t *header)
@@ -245,7 +338,7 @@ int run_split(header_t *header)
     header_t *curr_header;
     header_t *header_pc;
     header_t *header_bw;
-    int ret, num_thread, ret1, ret2;
+    int ret, num_thread;
 
     ret = 0;
     if (header->ratio == 0.0 || header->ratio == 1.0) {
@@ -282,10 +375,11 @@ int run_split(header_t *header)
         header_pc->thread_idx = 1;
         header_bw->halt = 0;
         header_pc->halt = 0;
-        ret1 = pthread_create(&thread_arr[0], NULL, bw_thread,
-                              (void *)header_bw);
-        ret2 = pthread_create(&thread_arr[1], NULL, pc_thread,
-                              (void *)header_pc);
+        ret = pthread_create(&thread_arr[0], NULL, bw_thread,
+                             (void *)header_bw);
+        if (ret == 0)
+            ret = pthread_create(&thread_arr[1], NULL, pc_thread,
+                                  (void *)header_pc);
     }
     if (header->ratio == 0.0 || header->ratio == 1.0) {
         pthread_join(thread_arr[0], NULL);
@@ -309,6 +403,9 @@ int main(int argc, char *argv[])
         fprintf(stderr, "ERROR parse_arg\n");
         return 0;
     }
-    run_split(header);
+    if (header->proc_mode)
+        run_processes(header);
+    else
+        run_split(header);
     return 0;
 }
